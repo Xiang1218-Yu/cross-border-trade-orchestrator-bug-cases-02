@@ -1,0 +1,19 @@
+{
+  "name": "cross-border-trade-orchestrator-bug-cases",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "跨境供应链履约编排服务及其独立 Bug 修复基准",
+  "scripts": {
+    "dev": "node --import tsx/esm src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --import tsx/esm --test src/*.test.ts",
+    "bug:catalog": "node --input-type=module -e \"import { readFileSync } from 'node:fs'; console.log(readFileSync('BUGS.md', 'utf8'))\""
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
