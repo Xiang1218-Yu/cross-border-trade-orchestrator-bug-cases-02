@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import {
-  addShipmentEvent, allocateOrder, cancelOrder, closeOrder, confirmOrder, createApproval, createCustomsDeclaration, createOrder, decideApproval, deliverOrder, dispatchOrder, generateInvoice, getOrder, invoiceOverdue, listAudit, listOrders, listOrdersPage, listOutbox, operationSummary, publishOutbox, recordPayment, state, timeline, updateCustoms
+  addShipmentEvent, allocateOrder, cancelOrder, closeOrder, confirmOrder, createApproval, createCustomsDeclaration, createOrder, decideApproval, deliverOrder, dispatchOrder, generateInvoice, getOrder, handlePaymentCallback, invoiceOverdue, listAudit, listOrders, listOrdersPage, listOutbox, operationSummary, PaymentCallbackError, publishOutbox, state, timeline, updateCustoms
 } from './domain.js';
 
 const port = Number(process.env.PORT ?? 4120);
@@ -10,7 +10,7 @@ const readBody = async (req: IncomingMessage) => { let raw = ''; for await (cons
 const tenantId = (req: IncomingMessage) => String(req.headers['x-tenant-id'] ?? 'tenant-acme');
 const actor = (req: IncomingMessage) => String(req.headers['x-actor'] ?? 'api-user');
 const success = (res: ServerResponse, body: unknown, status = 200) => json(res, status, { data: body });
-const failure = (res: ServerResponse, error: unknown, status = 400) => json(res, status, { error: error instanceof Error ? error.message : '请求失败' });
+const failure = (res: ServerResponse, error: unknown, status = 400) => json(res, error instanceof PaymentCallbackError ? error.statusCode : status, { error: error instanceof Error ? error.message : '请求失败' });
 
 const server = createServer(async (req, res) => {
   const method = req.method ?? 'GET'; const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`); const path = url.pathname; const tenant = tenantId(req); const user = actor(req);
@@ -39,7 +39,13 @@ const server = createServer(async (req, res) => {
     if (method === 'POST' && shipmentId) return success(res, addShipmentEvent(tenant, shipmentId, await readBody(req), user), 201);
 
     if (method === 'POST' && path === '/api/invoices') { const body = await readBody(req); return success(res, generateInvoice(tenant, String(body.orderId), user), 201); }
-    if (method === 'POST' && path === '/api/payments') return success(res, recordPayment(tenant, await readBody(req), user), 201);
+    if (method === 'POST' && path === '/api/payments') {
+      // 支付渠道回调入口：按 (租户, 渠道, 第三方流水号) 幂等，进程内同键串行。
+      const body = await readBody(req);
+      const result = await handlePaymentCallback(tenant, body, user);
+      // 重复回调返回 200 与同一笔支付结果（渠道侧视为成功，避免无意义重试）。
+      return success(res, result, 200);
+    }
     const invoiceId = path.match(/^\/api\/invoices\/([^/]+)\/overdue$/)?.[1];
     if (method === 'GET' && invoiceId) return success(res, invoiceOverdue(tenant, invoiceId, url.searchParams.get('asOf') ? new Date(String(url.searchParams.get('asOf'))) : new Date()));
     if (method === 'POST' && path === '/api/approvals') return success(res, createApproval(tenant, await readBody(req), user), 201);
