@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import {
-  addShipmentEvent, allocateOrder, cancelOrder, closeOrder, confirmOrder, createApproval, createCustomsDeclaration, createOrder, decideApproval, deliverOrder, dispatchOrder, generateInvoice, getOrder, invoiceOverdue, listAudit, listOrders, listOrdersPage, listOutbox, operationSummary, publishOutbox, recordPayment, state, timeline, updateCustoms
+  addShipmentEvent, allocateOrder, cancelOrder, closeOrder, confirmOrder, createApproval, createCustomsDeclaration, createOrder, decideApproval, deliverOrder, dispatchOrder, generateInvoice, getOrder, invoiceOverdue, listAudit, listOrders, listOrdersPage, listOutbox, operationSummary, PaymentConflictError, publishOutbox, recordPayment, state, timeline, updateCustoms
 } from './domain.js';
 
 const port = Number(process.env.PORT ?? 4120);
@@ -10,7 +10,12 @@ const readBody = async (req: IncomingMessage) => { let raw = ''; for await (cons
 const tenantId = (req: IncomingMessage) => String(req.headers['x-tenant-id'] ?? 'tenant-acme');
 const actor = (req: IncomingMessage) => String(req.headers['x-actor'] ?? 'api-user');
 const success = (res: ServerResponse, body: unknown, status = 200) => json(res, status, { data: body });
-const failure = (res: ServerResponse, error: unknown, status = 400) => json(res, status, { error: error instanceof Error ? error.message : '请求失败' });
+const failure = (res: ServerResponse, error: unknown, status = 400) => {
+  if (error instanceof PaymentConflictError) {
+    return json(res, error.statusCode, { error: error.message, code: error.conflictCode, idempotent: error.idempotent });
+  }
+  return json(res, status, { error: error instanceof Error ? error.message : '请求失败' });
+};
 
 const server = createServer(async (req, res) => {
   const method = req.method ?? 'GET'; const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`); const path = url.pathname; const tenant = tenantId(req); const user = actor(req);
